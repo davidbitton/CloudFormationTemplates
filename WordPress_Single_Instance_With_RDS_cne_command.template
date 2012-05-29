@@ -1,0 +1,381 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+  
+  "Description" : "AWS CloudFormation Template WordPress_Single_Instance_With_RDS: WordPress is web software you can use to create a beautiful website or blog. This template installs a single-instance WordPress deployment using an Amazon RDS database instance for storage. It demonstrates using the AWS CloudFormation bootstrap scripts to install packages and files at instance launch time. **WARNING** This template creates an Amazon EC2 instance and an Amazon RDS database instance. You will be billed for the AWS resources used if you create a stack from this template.",
+  
+  "Parameters" : {
+      
+    "KeyName" : {
+      "Description" : "Name of an existing EC2 KeyPair to enable SSH access to the instances",
+      "Type" : "String"
+    },    
+    
+    "InstanceType" : {
+      "Description" : "WebServer EC2 instance type",
+      "Type" : "String",
+      "Default" : "t1.micro",
+      "AllowedValues" : [ "t1.micro","m1.small","m1.medium","m1.large","m1.xlarge","m2.xlarge","m2.2xlarge","m2.4xlarge","c1.medium","c1.xlarge","cc1.4xlarge","cc2.8xlarge","cg1.4xlarge"],
+      "ConstraintDescription" : "must be a valid EC2 instance type."
+    },
+  
+    "DBClass" : {
+      "Default" : "db.m1.small",
+      "Description" : "Database instance class",
+      "Type" : "String",
+      "AllowedValues" : [ "db.m1.small", "db.m1.large", "db.m1.xlarge", "db.m2.xlarge", "db.m2.2xlarge", "db.m2.4xlarge" ],
+      "ConstraintDescription" : "must select a valid database instance type."
+    },
+        
+    "DBName" : {
+      "Default": "wordpress",
+      "Description" : "The WordPress database name",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "64",
+      "AllowedPattern" : "[a-zA-Z][a-zA-Z0-9]*",
+      "ConstraintDescription" : "must begin with a letter and contain only alphanumeric characters."
+    },
+    
+    "DBUsername" : {
+      "Default": "admin",
+      "NoEcho": "true",
+      "Description" : "The WordPress database admin account username",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "16",
+      "AllowedPattern" : "[a-zA-Z][a-zA-Z0-9]*",
+      "ConstraintDescription" : "must begin with a letter and contain only alphanumeric characters."
+    },
+    
+    "DBPassword" : {
+      "Default": "admin",
+      "NoEcho": "true",
+      "Description" : "The WordPress database admin account password",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "41",
+      "AllowedPattern" : "[a-zA-Z0-9]*",
+      "ConstraintDescription" : "must contain only alphanumeric characters."
+    },
+
+    "DBAllocatedStorage" : {
+      "Default": "5",
+      "Description" : "The size of the database (Gb)",
+      "Type": "Number",
+      "MinValue": "5",
+      "MaxValue": "1024",
+      "ConstraintDescription" : "must be between 5 and 1024Gb."
+    }   
+  },
+  
+  "Mappings" : {
+    "AWSInstanceType2Arch" : {
+      "t1.micro"    : { "Arch" : "64" },
+      "m1.small"    : { "Arch" : "64" },
+      "m1.medium"   : { "Arch" : "64" },
+      "m1.large"    : { "Arch" : "64" },
+      "m1.xlarge"   : { "Arch" : "64" },
+      "m2.xlarge"   : { "Arch" : "64" },
+      "m2.2xlarge"  : { "Arch" : "64" },
+      "m2.4xlarge"  : { "Arch" : "64" },
+      "c1.medium"   : { "Arch" : "64" },
+      "c1.xlarge"   : { "Arch" : "64" },
+      "cc1.4xlarge" : { "Arch" : "64HVM" },
+      "cc2.8xlarge" : { "Arch" : "64HVM" },
+      "cg1.4xlarge" : { "Arch" : "64HVM" }
+    },
+
+    "AWSRegionArch2AMI" : {
+      "us-east-1"      : { "32" : "ami-31814f58", "64" : "ami-1b814f72", "64HVM" : "ami-0da96764" },
+      "us-west-2"      : { "32" : "ami-38fe7308", "64" : "ami-30fe7300", "64HVM" : "NOT_YET_SUPPORTED" },
+      "us-west-1"      : { "32" : "ami-11d68a54", "64" : "ami-1bd68a5e", "64HVM" : "NOT_YET_SUPPORTED" },
+      "eu-west-1"      : { "32" : "ami-973b06e3", "64" : "ami-953b06e1", "64HVM" : "NOT_YET_SUPPORTED" },
+      "ap-southeast-1" : { "32" : "ami-b4b0cae6", "64" : "ami-beb0caec", "64HVM" : "NOT_YET_SUPPORTED" },
+      "ap-northeast-1" : { "32" : "ami-0644f007", "64" : "ami-0a44f00b", "64HVM" : "NOT_YET_SUPPORTED" },
+      "sa-east-1"      : { "32" : "ami-3e3be423", "64" : "ami-3c3be421", "64HVM" : "NOT_YET_SUPPORTED" }
+    }
+  },
+    
+  "Resources" : {     
+      
+    "CfnUser" : {
+      "Type" : "AWS::IAM::User",
+      "Properties" : {
+        "Path": "/",
+        "Policies": [{
+          "PolicyName": "root",
+          "PolicyDocument": { "Statement":[{
+            "Effect":"Allow",
+            "Action":"cloudformation:DescribeStackResource",
+            "Resource":"*"
+          }]}
+        }]
+      }
+    },
+
+    "WebServerKeys" : {
+      "Type" : "AWS::IAM::AccessKey",
+      "Properties" : {
+        "UserName" : {"Ref": "CfnUser"}
+      }
+    },
+
+    "HostKeys" : {
+      "Type" : "AWS::IAM::AccessKey",
+      "Properties" : {
+        "UserName" : {"Ref": "CfnUser"}
+      }
+    },
+
+    "WebServerEc2Instance": {  
+      "Type": "AWS::EC2::Instance",
+      "Metadata" : {
+        "AWS::CloudFormation::Init" : {
+          "configSets" : {
+              "default" : [ "first", "second" ]
+            },
+          "second" : {
+              "commands" : {
+                "a" : {
+                  "command" : "mv /var/www/html/wordpress/* /var/www/html/wordpress/.??* /var/www/html/ ; rmdir /var/www/html/wordpress"
+                },
+                "b" : {
+                  "command" : "chown -R apache:apache /var/www/html ; find /var/www/html -type d -exec chmod 770 {} + ; find /var/www/html -type f -exec chmod 660 {} +"
+                },
+                "c" : {
+                  "command" : { "Fn::Join" : ["", [
+                    "perl - /var/www/html/wp-config.php <<'EOF'\n",
+                    "use strict;\n",
+                    "use warnings;\n",
+                    "\n",
+                    "$^I = '.bak';\n",
+                    "my $keys = `curl -sS https://api.wordpress.org/secret-key/1.1/salt/`;\n",
+                    "while(<>) {\n",
+                    "  if (\/\\{KEYS_TOKEN\\}\/){ \n",
+                    "    print $keys; \n",
+                    "  } else { \n",
+                    "    print; \n",
+                    "  }\n",
+                    "}\n",
+                    "EOF\n"
+                  ]]}
+                }
+              }
+            },
+          "first" : {
+            "packages" : {
+              "yum" : {
+                "httpd"     : [],
+                "php"       : [],
+                "php-mysql" : [],
+                "mysql"     : []
+              }
+            },
+            "sources" : {
+              "/var/www/html" : "http://wordpress.org/latest.tar.gz"
+            },
+            "files" : {
+              "/var/www/html/wordpress/wp-config.php" : {
+                "content" : { "Fn::Join" : ["", [
+                  "<?php\n",
+                  "define('DB_NAME',          '", {"Ref" : "DBName"}, "');\n",
+                  "define('DB_USER',          '", {"Ref" : "DBUsername"}, "');\n",
+                  "define('DB_PASSWORD',      '", {"Ref" : "DBPassword" }, "');\n",
+                  "define('DB_HOST',          '", {"Fn::GetAtt" : ["DBInstance", "Endpoint.Address"]},"');\n",
+                  "define('DB_CHARSET',       'utf8');\n",
+                  "define('DB_COLLATE',       '');\n",
+                  "define('WPLANG'            , '');\n",
+                  "define('WP_DEBUG'          , false);\n",
+                  "{KEYS_TOKEN}\n",
+                  "$table_prefix  = 'wp_';\n",
+                  "if ( !defined('ABSPATH') )\n",
+                  "    define('ABSPATH', dirname(__FILE__) . '/');\n",
+                  "require_once(ABSPATH . 'wp-settings.php');\n"
+                ]] },
+                "mode" : "000644",
+                "owner" : "root",
+                "group" : "root"
+              },
+              "/etc/cfn/cfn-credentials" : {
+                "content" : { "Fn::Join" : ["", [
+                  "AWSAccessKeyId=", { "Ref" : "WebServerKeys" }, "\n",
+                  "AWSSecretKey=", {"Fn::GetAtt": ["WebServerKeys", "SecretAccessKey"]}, "\n"
+                ]]},
+                "mode"    : "000400",
+                "owner"   : "root",
+                "group"   : "root"
+              },
+
+              "/etc/cfn/cfn-hup.conf" : {
+                "content" : { "Fn::Join" : ["", [
+                  "[main]\n",
+                  "stack=", { "Ref" : "AWS::StackName" }, "\n",
+                  "credential-file=/etc/cfn/cfn-credentials\n",
+                  "region=", { "Ref" : "AWS::Region" }, "\n"
+                ]]},
+                "mode"    : "000400",
+                "owner"   : "root",
+                "group"   : "root"
+              },
+
+              "/etc/cfn/hooks.d/cfn-auto-reloader.conf" : {
+                "content": { "Fn::Join" : ["", [
+                  "[cfn-auto-reloader-hook]\n",
+                  "triggers=post.update\n",
+                  "path=Resources.WebServerEc2Instance.Metadata.AWS::CloudFormation::Init\n",
+                  "action=/opt/aws/bin/cfn-init -s ", { "Ref" : "AWS::StackName" },
+                  "              -r WebServerEc2Instance ",
+                  "              -c default",
+                  "              --credential-file /etc/cfn/cfn-credentials ",
+                  "              --region     ", { "Ref" : "AWS::Region" }, "\n",
+                  "runas=root\n"
+                ]]}
+              }              
+            },
+            "services" : {
+              "sysvinit" : {
+                "httpd"    : { "enabled" : "true", "ensureRunning" : "true" },
+                "sendmail" : { "enabled" : "false", "ensureRunning" : "false" }
+              }
+            }
+          }
+        }
+      },
+      "Properties": {
+        "ImageId" : { "Fn::FindInMap" : [ "AWSRegionArch2AMI", { "Ref" : "AWS::Region" },
+                          { "Fn::FindInMap" : [ "AWSInstanceType2Arch", { "Ref" : "InstanceType" }, "Arch" ] } ] },
+        "InstanceType"   : { "Ref" : "InstanceType" },
+        "SecurityGroups" : [ {"Ref" : "WebServerSecurityGroup"} ],
+        "KeyName"        : { "Ref" : "KeyName" },
+        "UserData"       : 
+        { 
+          "Fn::Base64" : 
+          { 
+            "Fn::Join" : 
+            [
+              "", 
+              [
+                "#!/bin/bash\n",
+                "yum update -y aws-cfn-bootstrap\n",
+
+                "# Helper function\n",
+                "function error_exit\n",
+                "{\n",
+                "  /opt/aws/bin/cfn-signal -e 1 -r \"$1\" '", { "Ref" : "WaitHandle" }, "'\n",
+                "  exit 1\n",
+                "}\n",
+
+                "/opt/aws/bin/cfn-init -s ", { "Ref" : "AWS::StackName" }, " -r WebServerEc2Instance -c default",
+                "         --access-key ", { "Ref" : "HostKeys" },
+                "         --secret-key ", {"Fn::GetAtt": ["HostKeys", "SecretAccessKey"]},
+                "         --region ", { "Ref" : "AWS::Region" },
+                " || error_exit 'Failed to run cfn-init.'\n",
+
+                "# Start up the cfn-hup daemon to listen for changes\n",
+                "/opt/aws/bin/cfn-hup || error_exit 'Failed to start cfn-hup'\n",
+
+                "# Now that Wordpress is complete, perform a full yum update\n",
+                "#yum -y update",
+                "# || error_exit 'Failed to yum update.'\n",
+
+                "# All is well so signal success\n",
+                "/opt/aws/bin/cfn-signal -e 0 -r \"Wordpress installation complete.\" '", { "Ref" : "WaitHandle" }, "'\n"
+              ]
+            ]
+          }
+        }        
+      }
+    },
+
+    "WaitHandle" : {
+      "Type" : "AWS::CloudFormation::WaitConditionHandle"
+    },
+
+    "WaitCondition" : {
+      "Type" : "AWS::CloudFormation::WaitCondition",
+      "DependsOn" : "WebServerEc2Instance",
+      "Properties" : {
+        "Handle" : {"Ref" : "WaitHandle"},
+        "Timeout" : "600"
+      }
+    },
+
+    "DBInstance" : {
+      "Type": "AWS::RDS::DBInstance",
+      "Properties": {
+        "DBName"            : { "Ref" : "DBName" },
+        "Engine"            : "MySQL",
+        "MasterUsername"    : { "Ref" : "DBUsername" },
+        "DBInstanceClass"   : { "Ref" : "DBClass" },
+        "DBSecurityGroups"  : [{ "Ref" : "DBSecurityGroup" }],
+        "AllocatedStorage"  : { "Ref" : "DBAllocatedStorage" },
+        "MasterUserPassword": { "Ref" : "DBPassword" },
+        "EngineVersion"     : "5.1.62"
+      }
+    },
+    
+    "DBSecurityGroup": {
+      "Type": "AWS::RDS::DBSecurityGroup",
+      "Properties": {
+        "DBSecurityGroupIngress": { "EC2SecurityGroupName": { "Ref": "WebServerSecurityGroup"} },
+        "GroupDescription"      : "Frontend Access"
+      }        
+    },    
+    
+    "WebServerSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties" : {
+        "GroupDescription" : "Enable HTTP access via port 80 and SSH access",
+        "SecurityGroupIngress" : [
+          {"IpProtocol" : "tcp", "FromPort" : "80", "ToPort" : "80", "CidrIp" : "0.0.0.0/0"},
+          {"IpProtocol" : "tcp", "FromPort" : "22", "ToPort" : "22", "CidrIp" : "0.0.0.0/0"}
+        ]
+      }      
+    }          
+  },
+  
+  "Outputs" : {
+    "WebsiteURL" : {
+      "Value" : { "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : [ "WebServerEc2Instance", "PublicDnsName" ]} ]] },
+      "Description" : "WordPress Website"
+    }
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
